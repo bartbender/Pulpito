@@ -28,6 +28,12 @@ let pointerLogical = { x: 0, y: 0 };
 // ─── Variables de escala ──────────────────────────────────────────────────────
 let canvas, ctx, scaleX = 1, scaleY = 1;
 
+// ─── Touch virtual keys ───────────────────────────────────────────────────────
+const touchVKeys = { left: false, right: false, shoot: false };
+const _touchMap  = new Map(); // touchId → zone
+let _jumpQueued  = false;
+let hasTouchScreen = false;
+
 // ─── Singletons ───────────────────────────────────────────────────────────────
 let player, soundManager, sceneManager;
 let frameCount = 0;
@@ -1192,6 +1198,65 @@ function drawEscapeDoor(ctx, x, y) {
 }
 
 // ─── HUD ──────────────────────────────────────────────────────────────────────
+// ─── Helpers táctiles ────────────────────────────────────────────────────────
+function _clientToLogical(clientX, clientY) {
+  const rect = canvas.getBoundingClientRect();
+  return {
+    x: ((clientX - rect.left) / rect.width)  * LOGICAL_WIDTH,
+    y: ((clientY - rect.top)  / rect.height) * LOGICAL_HEIGHT,
+  };
+}
+
+function _zoneOf(lx, ly) {
+  if (ly < LOGICAL_HEIGHT * 0.80) return null;
+  if (lx < 180)                   return 'left';
+  if (lx < 390)                   return 'right';
+  if (lx >= 410 && lx <= 560)     return 'jump';
+  if (lx > 790)                   return 'shoot';
+  return null;
+}
+
+function _refreshTouchVKeys() {
+  touchVKeys.left  = false;
+  touchVKeys.right = false;
+  touchVKeys.shoot = false;
+  for (const zone of _touchMap.values()) {
+    if (zone === 'left')  touchVKeys.left  = true;
+    if (zone === 'right') touchVKeys.right = true;
+    if (zone === 'shoot') touchVKeys.shoot = true;
+  }
+}
+
+// ─── HUD táctil (botones en pantalla) ────────────────────────────────────────
+function renderTouchControls(ctx) {
+  if (!hasTouchScreen) return;
+  ctx.save();
+
+  const buttons = [
+    { label: '\u2190', x: 18,  y: 454, w: 76, h: 68, active: touchVKeys.left  },
+    { label: '\u2192', x: 104, y: 454, w: 76, h: 68, active: touchVKeys.right },
+    { label: '\u2191', x: 432, y: 454, w: 96, h: 68, active: _jumpQueued      },
+    { label: '\u25CF', x: 846, y: 454, w: 96, h: 68, active: touchVKeys.shoot },
+  ];
+
+  for (const btn of buttons) {
+    ctx.globalAlpha = btn.active ? 0.75 : 0.35;
+    ctx.fillStyle   = btn.active ? '#ffe066' : 'rgba(200,230,255,0.5)';
+    ctx.beginPath();
+    ctx.roundRect(btn.x, btn.y, btn.w, btn.h, 14);
+    ctx.fill();
+
+    ctx.globalAlpha = btn.active ? 0.95 : 0.65;
+    ctx.fillStyle   = btn.active ? '#222' : '#fff';
+    ctx.font        = "bold 30px 'Bubblegum Sans', cursive";
+    ctx.textAlign   = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(btn.label, btn.x + btn.w / 2, btn.y + btn.h / 2);
+  }
+
+  ctx.restore();
+}
+
 function renderHUD(ctx, phase) {
   ctx.save();
   ctx.font = "22px 'Bubblegum Sans', cursive";
@@ -1422,7 +1487,8 @@ class MenuState extends State {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText('WASD / Flechas para moverse · Z/J/Ctrl para disparar', LOGICAL_WIDTH / 2, LOGICAL_HEIGHT / 2 + 125);
-    ctx.fillText('Click / Touch para comenzar', LOGICAL_WIDTH / 2, LOGICAL_HEIGHT / 2 + 148);
+    ctx.fillText('Touch: ← → (mover)  ↑ (saltar)  ● (disparar)', LOGICAL_WIDTH / 2, LOGICAL_HEIGHT / 2 + 148);
+    ctx.fillText('Click / Touch START para comenzar', LOGICAL_WIDTH / 2, LOGICAL_HEIGHT / 2 + 171);
     ctx.restore();
   }
   handleInput(lx, ly) {
@@ -1504,6 +1570,7 @@ class Phase1State extends State {
     this.enemies.forEach(e => e.render(ctx, this.scrollX));
     player.render(ctx);
     renderHUD(ctx, 1);
+    renderTouchControls(ctx);
   }
 }
 
@@ -1511,28 +1578,28 @@ function handlePhase1Input(dt, state) {
   const SPEED = 220;
   player.vx = 0;
 
-  if (keys['ArrowLeft'] || keys['KeyA']) {
+  if (keys['ArrowLeft'] || keys['KeyA'] || touchVKeys.left) {
     player.x -= SPEED * dt;
     player.facingRight = false;
   }
-  if (keys['ArrowRight'] || keys['KeyD']) {
+  if (keys['ArrowRight'] || keys['KeyD'] || touchVKeys.right) {
     player.x += SPEED * dt;
     player.facingRight = true;
   }
-  if ((keys['ArrowUp'] || keys['KeyW'] || keys['Space']) && !player.isJumping) {
+  if ((keys['ArrowUp'] || keys['KeyW'] || keys['Space'] || _jumpQueued) && !player.isJumping) {
     player.vy = player.jumpVy;
     player.isJumping = true;
     player.onGround  = false;
+    _jumpQueued = false;
   }
-  if (keys['KeyZ'] || keys['KeyJ'] || keys['ControlLeft'] || keys['ControlRight']) {
+  if (keys['KeyZ'] || keys['KeyJ'] || keys['ControlLeft'] || keys['ControlRight'] || touchVKeys.shoot) {
     player.shoot();
   }
 
-  // Procesar cola de eventos táctiles/ratón
+  // Procesar cola de eventos de ratón (click → disparar)
   while (inputQueue.length > 0) {
     const ev = inputQueue.shift();
     if (ev.type === 'shoot') player.shoot();
-    if (ev.type === 'move_left') { player.x -= SPEED * dt; player.facingRight = false; }
   }
 }
 
@@ -1675,6 +1742,7 @@ class Phase2State extends State {
     this.enemies.forEach(e => e.render(ctx));
     player.render(ctx);
     renderHUD(ctx, 2);
+    renderTouchControls(ctx);
 
     // Distancia restante
     ctx.save();
@@ -1690,20 +1758,21 @@ class Phase2State extends State {
 
 function handlePhase2Input(dt) {
   const SPEED = 240;
-  if (keys['ArrowLeft'] || keys['KeyA']) {
+  if (keys['ArrowLeft'] || keys['KeyA'] || touchVKeys.left) {
     player.x -= SPEED * dt;
     player.facingRight = false;
   }
-  if (keys['ArrowRight'] || keys['KeyD']) {
+  if (keys['ArrowRight'] || keys['KeyD'] || touchVKeys.right) {
     player.x += SPEED * dt;
     player.facingRight = true;
   }
-  if ((keys['ArrowUp'] || keys['KeyW'] || keys['Space']) && !player.isJumping) {
+  if ((keys['ArrowUp'] || keys['KeyW'] || keys['Space'] || _jumpQueued) && !player.isJumping) {
     player.vy = player.jumpVy;
     player.isJumping = true;
     player.onGround  = false;
+    _jumpQueued = false;
   }
-  if (keys['KeyZ'] || keys['KeyJ'] || keys['ControlLeft'] || keys['ControlRight']) {
+  if (keys['KeyZ'] || keys['KeyJ'] || keys['ControlLeft'] || keys['ControlRight'] || touchVKeys.shoot) {
     player.shoot();
   }
   while (inputQueue.length > 0) {
@@ -1868,6 +1937,7 @@ class Phase3State extends State {
     this.boss.render(ctx, this.bossLives);
     player.render(ctx);
     renderHUD(ctx, 3);
+    renderTouchControls(ctx);
     // Barra de vida del jefe en la parte inferior
     ctx.save();
     ctx.font = "18px 'Bubblegum Sans', cursive";
@@ -1881,22 +1951,27 @@ class Phase3State extends State {
 
 function handlePhase3Input(dt) {
   const SPEED = 220;
-  if (keys['ArrowLeft'] || keys['KeyA']) {
+  if (keys['ArrowLeft'] || keys['KeyA'] || touchVKeys.left) {
     player.x -= SPEED * dt;
     player.facingRight = false;
   }
-  if (keys['ArrowRight'] || keys['KeyD']) {
+  if (keys['ArrowRight'] || keys['KeyD'] || touchVKeys.right) {
     player.x += SPEED * dt;
     player.facingRight = true;
   }
-  if ((keys['ArrowUp'] || keys['KeyW'] || keys['Space']) && !player.isJumping) {
+  if ((keys['ArrowUp'] || keys['KeyW'] || keys['Space'] || _jumpQueued) && !player.isJumping) {
     player.vy = player.jumpVy;
     player.isJumping = true;
     player.onGround  = false;
+    _jumpQueued = false;
   }
   if (keys['KeyZ'] || keys['KeyJ'] || keys['ControlLeft'] || keys['ControlRight']) {
     player.shoot();
     player.facingRight = true; // Siempre dispara hacia el jefe (derecha)
+  }
+  if (touchVKeys.shoot) {
+    player.shoot();
+    player.facingRight = true;
   }
   while (inputQueue.length > 0) {
     const ev = inputQueue.shift();
@@ -2003,9 +2078,19 @@ class GameOverState extends State {
 
 // ─── Escalado y resize ────────────────────────────────────────────────────────
 function onResize() {
-  const rect = canvas.getBoundingClientRect();
-  canvas.width  = rect.width  * window.devicePixelRatio;
-  canvas.height = rect.height * window.devicePixelRatio;
+  const titleEl = document.getElementById('game-title');
+  const titleH  = titleEl ? titleEl.getBoundingClientRect().height : 0;
+  const availW  = window.innerWidth;
+  const availH  = window.innerHeight - titleH;
+  const scale   = Math.min(availW / LOGICAL_WIDTH, availH / LOGICAL_HEIGHT);
+  const cssW    = Math.round(LOGICAL_WIDTH  * scale);
+  const cssH    = Math.round(LOGICAL_HEIGHT * scale);
+  const dpr     = window.devicePixelRatio || 1;
+
+  canvas.style.width  = cssW + 'px';
+  canvas.style.height = cssH + 'px';
+  canvas.width        = cssW * dpr;
+  canvas.height       = cssH * dpr;
   scaleX = canvas.width  / LOGICAL_WIDTH;
   scaleY = canvas.height / LOGICAL_HEIGHT;
 }
@@ -2044,8 +2129,9 @@ export function Initialize() {
   });
   window.addEventListener('keyup',   e => { keys[e.code] = false; });
 
-  // Ratón / Puntero
+  // Ratón / Puntero (solo mouse, el táctil se gestiona con touchstart)
   canvas.addEventListener('pointerdown', e => {
+    if (e.pointerType !== 'mouse') return;
     const lx = (e.offsetX / canvas.offsetWidth)  * LOGICAL_WIDTH;
     const ly = (e.offsetY / canvas.offsetHeight) * LOGICAL_HEIGHT;
     pointerLogical = { x: lx, y: ly };
@@ -2060,31 +2146,56 @@ export function Initialize() {
     }
   });
   canvas.addEventListener('pointermove', e => {
+    if (e.pointerType !== 'mouse') return;
     pointerLogical.x = (e.offsetX / canvas.offsetWidth)  * LOGICAL_WIDTH;
     pointerLogical.y = (e.offsetY / canvas.offsetHeight) * LOGICAL_HEIGHT;
   });
 
-  // Táctil
+  // Táctil — botones virtuales con multi-touch
+  function _isGameState() {
+    return !(sceneManager.current instanceof MenuState      ||
+             sceneManager.current instanceof GameOverState  ||
+             sceneManager.current instanceof Phase3WinState);
+  }
+
   canvas.addEventListener('touchstart', e => {
     e.preventDefault();
+    hasTouchScreen = true;
     for (const t of e.changedTouches) {
-      const lx = (t.clientX / canvas.offsetWidth)  * LOGICAL_WIDTH;
-      const ly = (t.clientY / canvas.offsetHeight) * LOGICAL_HEIGHT;
-      if (sceneManager.current instanceof MenuState) {
-        sceneManager.current.handleInput(lx, ly);
-      } else if (sceneManager.current instanceof GameOverState) {
-        sceneManager.current.handleInput();
-      } else if (sceneManager.current instanceof Phase3WinState) {
-        sceneManager.current.handleInput();
+      const { x: lx, y: ly } = _clientToLogical(t.clientX, t.clientY);
+      if (_isGameState()) {
+        const zone = _zoneOf(lx, ly);
+        _touchMap.set(t.identifier, zone);
+        if (zone === 'jump') _jumpQueued = true;
+        _refreshTouchVKeys();
       } else {
-        if (lx < LOGICAL_WIDTH / 2) {
-          inputQueue.push({ type: 'move_left' });
-        } else {
-          inputQueue.push({ type: 'shoot' });
-        }
+        if (sceneManager.current instanceof MenuState)       sceneManager.current.handleInput(lx, ly);
+        else if (sceneManager.current instanceof GameOverState)    sceneManager.current.handleInput();
+        else if (sceneManager.current instanceof Phase3WinState)   sceneManager.current.handleInput();
       }
     }
   }, { passive: false });
+
+  canvas.addEventListener('touchmove', e => {
+    e.preventDefault();
+    for (const t of e.changedTouches) {
+      if (!_touchMap.has(t.identifier)) continue;
+      const { x: lx, y: ly } = _clientToLogical(t.clientX, t.clientY);
+      _touchMap.set(t.identifier, _zoneOf(lx, ly));
+      _refreshTouchVKeys();
+    }
+  }, { passive: false });
+
+  canvas.addEventListener('touchend', e => {
+    e.preventDefault();
+    for (const t of e.changedTouches) _touchMap.delete(t.identifier);
+    _refreshTouchVKeys();
+  }, { passive: false });
+
+  canvas.addEventListener('touchcancel', e => {
+    for (const t of e.changedTouches) _touchMap.delete(t.identifier);
+    _refreshTouchVKeys();
+  });
 
   // Singletons
   soundManager  = new SoundManager();
