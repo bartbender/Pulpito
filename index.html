@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pulpito: El Gran Robo del Fondo del Mar</title>
+  <!-- Fuente infantil tipo Comic Sans -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Bubblegum+Sans&display=swap" rel="stylesheet" />
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #001133;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      height: 100dvh;
+      overflow: hidden;
+      font-family: 'Bubblegum Sans', 'Comic Sans MS', cursive;
+    }
+    #game-title {
+      font-size: clamp(1.5rem, 5vw, 3rem);
+      letter-spacing: 0.05em;
+      padding: 0.4em 0;
+    }
+    #game-canvas {
+      display: block;
+      width: 100%;
+      flex: 1;
+      touch-action: none;
+    }
+  </style>
+</head>
+<body>
+  <!-- Título con letras de colores (un <span> por letra con color inline) -->
+  <h1 id="game-title">
+    <span style="color:#FF4E4E">P</span><span style="color:#FF9900">u</span><span style="color:#FFE033">l</span><span style="color:#66FF66">p</span><span style="color:#33CCFF">i</span><span style="color:#CC44FF">t</span><span style="color:#FF4E4E">o</span>
+    &nbsp;
+    <span style="color:#FF9900">🐙</span>
+    &nbsp;
+    <span style="color:#FFE033">E</span><span style="color:#66FF66">l</span>
+    &nbsp;
+    <span style="color:#33CCFF">G</span><span style="color:#CC44FF">r</span><span style="color:#FF4E4E">a</span><span style="color:#FF9900">n</span>
+    &nbsp;
+    <span style="color:#FFE033">R</span><span style="color:#66FF66">o</span><span style="color:#33CCFF">b</span><span style="color:#CC44FF">o</span>
+  </h1>
+  <canvas id="game-canvas"></canvas>
+  <script type="module" src="gameplay.js"></script>
+</body>
+</html>
