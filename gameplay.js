@@ -188,7 +188,7 @@ class Player extends Entity {
     this.inkBalls     = [];
     this.invincibleTime = 0;
     this.groundY      = LOGICAL_HEIGHT - 160;
-    this.jumpVy       = -500;
+    this.jumpVy       = -700;
     this.gravity      = 1200;
   }
 
@@ -877,17 +877,18 @@ class Moneybag extends Entity {
     super(x, y, 36, 36);
     this.worldX  = x;   // coordenada de mundo (Fase 1)
     this.value   = value;
+    this.baseY   = y;
     this.bobTime = Math.random() * Math.PI * 2;
   }
   update(dt) {
-    this.bobTime += dt * 2;
+    this.bobTime += dt * 1.5;
+    this.y = this.baseY + Math.sin(this.bobTime) * 65;
   }
   render(ctx, scrollX) {
     const screenX = scrollX !== undefined ? this.worldX - scrollX : this.x;
     if (screenX < -this.w - 50 || screenX > LOGICAL_WIDTH + 50) return;
-    const yOff = Math.sin(this.bobTime) * 4;
     ctx.save();
-    ctx.translate(screenX + this.w / 2, this.y + this.h / 2 + yOff);
+    ctx.translate(screenX + this.w / 2, this.y + this.h / 2);
     // Saco
     ctx.beginPath();
     ctx.ellipse(0, 4, this.w * 0.42, this.h * 0.4, 0, 0, Math.PI * 2);
