@@ -819,14 +819,14 @@ function drawSeaBackground(ctx, offsetX) {
 ## 11. Fase 1 — El Gran Robo
 
 ### Objetivo
-Pulpito debe recolectar **10.000 Cangre Euros** saqueando el banco.
+Pulpito debe recolectar **10.000 Cangre Euros** saqueando el banco. El mundo se extiende horizontalmente mucho más allá de la pantalla inicial; a medida que Pulpito avanza, el sistema genera dinámicamente nuevos sacos de dinero y oleadas de enemigos.
 
 ### Mecánica de Juego
 - **Scroll horizontal** hacia la derecha; Pulpito puede moverse en las 4 direcciones dentro de su área de pantalla.
-- **Sacos de dinero** aparecen repartidos por el escenario. Al tocarlos, se suman monedas (entre 100 y 500 cada saco).
+- **Sacos de dinero (Moneybags)** se generan dinámicamente conforme avanza el scroll (ver §22). Al tocarlos, se suman entre 150 y 400 Cangre Euros.
 - **Calamardo y Bob Esponja** patrullan el banco e intentan interceptar a Pulpito.
   - Si uno de ellos toca a Pulpito, pierde 1 vida y entra en modo invencible 2 segundos.
-  - Las bolas de tinta de Pulpito aturden temporalmente a Calamardo y Bob (2 segundos congelados).
+  - Las bolas de tinta de Pulpito **dañan** a Calamardo y Bob (cada bola quita 1 HP de los 5 que tienen — ver §23).
 - **Contador de vidas:** Pulpito empieza con 5 vidas en esta fase.
 - **HUD:** "Cangre Euros: XXXX / 10000 💰" y "Vidas: ❤️❤️❤️❤️❤️" en la parte superior del canvas.
 
@@ -838,7 +838,7 @@ Pulpito debe recolectar **10.000 Cangre Euros** saqueando el banco.
 
 ### Dificultad Progresiva
 - Cada 2.000 Cangre Euros, la velocidad de los enemigos aumenta un 15 %.
-- A los 5.000, aparece un segundo Calamardo y un segundo Bob Esponja.
+- A los 5.000, la tasa de spawn de nuevos enemigos se duplica (ver §22).
 - A los 8.000, los enemigos también disparan (proyectiles lentos de burbujas de agua).
 
 ```js
@@ -848,18 +848,26 @@ class Phase1State extends State {
       new Calamardo(600, LOGICAL_HEIGHT - 140),
       new BobEsponja(800, LOGICAL_HEIGHT - 140),
     ];
-    this.moneybags = generateMoneybags(20); // 20 sacos iniciales
+    this.moneybags = generateMoneybags(5, 0); // 5 sacos en la zona inicial visible
     this.scrollX = 0;
+    this.worldX = 0;       // coordenada del mundo (crece sin límite)
+    this.nextBagWorld  = 400;   // worldX en que se spawneará el próximo saco
+    this.nextEnemyWorld = 800;  // worldX en que se spawneará la próxima oleada de enemigos
+    this.respawnQueue  = [];    // cola de respawns pendientes (ver §23)
     player.lives = 5;
     player.coins = 0;
   }
   update(dt) {
     handlePhase1Input(dt);
-    this.scrollX += SCROLL_SPEED * dt;
+    const delta = SCROLL_SPEED * dt;
+    this.scrollX  += delta;
+    this.worldX   += delta;
     this.enemies.forEach(e => e.update(dt, this.scrollX));
     this.moneybags.forEach(b => b.update(dt, this.scrollX));
+    processRespawnQueue(this, dt);   // §23
+    spawnContentIfNeeded(this);      // §22
+    pruneOffScreenEntities(this);    // elimina entidades muy a la izquierda
     checkPhase1Collisions();
-    spawnMoreContentIfNeeded();
     if (player.coins >= 10000) sceneManager.changeState(new Phase1WinState());
     if (player.lives <= 0)    sceneManager.changeState(new GameOverState());
   }
@@ -1225,6 +1233,313 @@ if (document.readyState === 'loading') {
 
 ---
 
+## 22. Generación Dinámica de Contenido — Streaming del Mundo
+
+### Problema que resuelve
+Con solo los sacos iniciales en pantalla no es posible alcanzar los 10.000 Cangre Euros porque el número de objetos es fijo y el jugador los recoge rápidamente. El mundo debe generar contenido nuevo de forma continua conforme el scroll avanza.
+
+### Concepto: coordenada de mundo (`worldX`)
+
+La variable `worldX` crece ilimitadamente a medida que el jugador avanza. **No** se reinicia con módulo. Las entidades se sitúan en coordenadas de mundo; su posición en pantalla es `entityWorldX - scrollX`.
+
+```
+posiciónEnPantalla = entityWorldX - scrollX
+```
+
+Una entidad es visible cuando `posiciónEnPantalla` está entre `0` y `LOGICAL_WIDTH`.
+
+### Algoritmo `spawnContentIfNeeded(state)`
+
+```js
+const BAG_SPAWN_INTERVAL   = 350;  // cada 350 px de worldX se spawna un saco
+const ENEMY_SPAWN_INTERVAL = 700;  // cada 700 px se lanza una oleada de enemigos
+
+function spawnContentIfNeeded(state) {
+  // Sacos de dinero: se generan siempre un paso por delante de la pantalla
+  while (state.worldX + LOGICAL_WIDTH > state.nextBagWorld) {
+    const bagWorldX = state.nextBagWorld + LOGICAL_WIDTH;
+    const bagY      = LOGICAL_HEIGHT - 80 - Math.random() * 180;
+    const value     = 150 + Math.floor(Math.random() * 251); // 150–400 CE
+    state.moneybags.push(new Moneybag(bagWorldX, bagY, value));
+    state.nextBagWorld += BAG_SPAWN_INTERVAL;
+  }
+
+  // Oleadas de enemigos
+  while (state.worldX + LOGICAL_WIDTH > state.nextEnemyWorld) {
+    spawnEnemyWave(state, state.nextEnemyWorld + LOGICAL_WIDTH);
+    state.nextEnemyWorld += ENEMY_SPAWN_INTERVAL;
+  }
+}
+```
+
+**Cálculo de suficiencia:** con `BAG_SPAWN_INTERVAL = 350 px` y valor medio de 275 CE por saco, se necesitan ~37 sacos para alcanzar 10.000 CE. El jugador recorrerá ~13.000 px de mundo (≈ 13 pantallas) — tiempo más que suficiente para recogerlos sin que se sientan escasos.
+
+### Variedad en posición de los sacos
+
+| Zona vertical | Probabilidad | Descripción |
+|---|---|---|
+| Suelo (LOGICAL_HEIGHT − 60 px) | 30 % | Fácil de recoger |
+| Media altura (200–340 px) | 50 % | Requiere saltar |
+| Plataforma alta (80–160 px) | 20 % | Difícil, da +50 CE adicionales |
+
+### Oleadas de Enemigos (`spawnEnemyWave`)
+
+```js
+function spawnEnemyWave(state, worldX) {
+  const difficultyFactor = Math.min(state.worldX / 5000, 1); // 0→1 según progreso
+  const count = 1 + Math.floor(difficultyFactor * 2); // 1–3 enemigos por oleada
+
+  for (let i = 0; i < count; i++) {
+    const type  = Math.random() < 0.5 ? 'calamardo' : 'bob';
+    const y     = LOGICAL_HEIGHT - 140;
+    const enemy = type === 'calamardo'
+      ? new Calamardo(worldX + i * 120, y)
+      : new BobEsponja(worldX + i * 120, y);
+    enemy.speed *= (1 + difficultyFactor * 0.6);
+    state.enemies.push(enemy);
+  }
+}
+```
+
+### Limpieza de entidades fuera de pantalla (`pruneOffScreenEntities`)
+
+Para evitar que las listas crezcan indefinidamente, se eliminan entidades que quedaron más de 200 px a la izquierda del scroll:
+
+```js
+function pruneOffScreenEntities(state) {
+  const leftBound = state.scrollX - 200;
+  state.moneybags = state.moneybags.filter(b => b.worldX > leftBound && b.alive);
+  state.enemies   = state.enemies.filter(e => e.worldX > leftBound && e.alive);
+}
+```
+
+### Coordenadas de Mundo en `Moneybag` y `Enemy`
+
+Todas las entidades de la Fase 1 usan `worldX`. En sus métodos `render` y `update` reciben `scrollX` como parámetro:
+
+```js
+render(ctx, scrollX) {
+  const screenX = this.worldX - scrollX;
+  if (screenX < -this.w - 50 || screenX > LOGICAL_WIDTH + 50) return; // culling
+  // dibuja en screenX, this.y
+}
+
+update(dt, scrollX) {
+  this.worldX += this.vx * dt;  // movimiento relativo al mundo
+}
+```
+
+---
+
+## 23. Sistema de Vida y Muerte de Enemigos con Respawn
+
+### Problema que resuelve
+En la primera implementación, las bolas de tinta solo aturden a los enemigos. Para mayor jugabilidad y sensación de progresión, los enemigos deben poder **morir** acumulando daño (5 impactos) y luego **respawnear** después de un tiempo, manteniendo presión constante sobre el jugador.
+
+### Propiedad `hp` en enemigos
+
+| Enemigo | `hp` base | Notas |
+|---|---|---|
+| `Calamardo` | 5 | Enemigo estándar Fase 1 y 2 |
+| `BobEsponja` | 5 | Enemigo estándar Fase 1 y 2 |
+| `DonCangrejo` | 8 | Solo Fase 2, más resistente |
+| `SharkBoss` | 15 | Jefe Final Fase 3 (sin respawn) |
+
+### Modificación de la clase `Enemy` base
+
+```js
+class Enemy extends Entity {
+  constructor(worldX, y, w, h, hp) {
+    super(worldX, y, w, h);
+    this.worldX = worldX;
+    this.hp = hp;
+    this.maxHp = hp;
+    this.stunTime = 0;
+    this.deathTimer = -1;          // -1 = vivo; ≥ 0 = animación de muerte activa
+    this.DEATH_ANIM_DURATION = 0.6;
+  }
+
+  hit() {
+    if (this.deathTimer >= 0) return; // ya muerto
+    this.hp -= 1;
+    this.stunTime = 0.4;
+    SoundManager.play('enemyHit');
+    if (this.hp <= 0) this.die();
+  }
+
+  die() {
+    this.deathTimer = 0;
+    SoundManager.play('enemyDeath');
+    player.coins += 200; // bonus por matar enemigo
+    if (currentPhaseState?.respawnQueue) {
+      currentPhaseState.respawnQueue.push({
+        type: this.constructor.name,
+        delay: 4.0,
+        elapsed: 0,
+        done: false,
+      });
+    }
+  }
+
+  update(dt, scrollX) {
+    if (this.deathTimer >= 0) {
+      this.deathTimer += dt;
+      if (this.deathTimer >= this.DEATH_ANIM_DURATION) this.alive = false;
+      return;
+    }
+    if (this.stunTime > 0) {
+      this.stunTime -= dt;
+      return;
+    }
+    this.worldX += this.vx * dt;
+    // lógica de patrulla específica en cada subclase
+  }
+}
+```
+
+### Animación de muerte — explosión de tinta
+
+Cuando `deathTimer >= 0`, en lugar del sprite normal se renderiza una explosión de partículas:
+
+```js
+function renderDeathExplosion(ctx, screenX, screenY, w, timer, duration) {
+  const progress = timer / duration; // 0 → 1
+  ctx.save();
+  ctx.globalAlpha = 1 - progress;
+  const particleCount = 12;
+  for (let i = 0; i < particleCount; i++) {
+    const angle = (i / particleCount) * Math.PI * 2;
+    const dist  = progress * w * 1.2;
+    const px    = screenX + w / 2 + Math.cos(angle) * dist;
+    const py    = screenY + w / 2 + Math.sin(angle) * dist;
+    const r     = (1 - progress) * 8 + 2;
+    ctx.beginPath();
+    ctx.arc(px, py, r, 0, Math.PI * 2);
+    ctx.fillStyle = i % 2 === 0 ? PALETTE.inkBlack : '#4444aa';
+    ctx.fill();
+  }
+  // Flash blanco al inicio del impacto
+  if (progress < 0.2) {
+    ctx.beginPath();
+    ctx.arc(screenX + w / 2, screenY + w / 2, w * 0.6 * (1 - progress / 0.2), 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255,255,255,0.8)';
+    ctx.fill();
+  }
+  ctx.restore();
+}
+```
+
+Y en el `render` de cada enemigo se incluye la barra de vida y la detección de estado de muerte:
+
+```js
+render(ctx, scrollX) {
+  const screenX = this.worldX - scrollX;
+  if (screenX < -this.w - 50 || screenX > LOGICAL_WIDTH + 50) return;
+
+  if (this.deathTimer >= 0) {
+    renderDeathExplosion(ctx, screenX, this.y, this.w, this.deathTimer, this.DEATH_ANIM_DURATION);
+    return;
+  }
+  // Parpadeo rápido al recibir daño
+  if (this.stunTime > 0 && Math.floor(Date.now() / 80) % 2 === 0) return;
+
+  this.drawSelf(ctx, screenX, this.y, this.w, this.h);
+
+  // Barra de vida pequeña sobre el enemigo (visible solo si hp < maxHp)
+  if (this.hp < this.maxHp) {
+    const barW = this.w * 0.8;
+    const barX = screenX + this.w * 0.1;
+    const barY = this.y - 10;
+    ctx.fillStyle = '#333';
+    ctx.fillRect(barX, barY, barW, 5);
+    ctx.fillStyle = `hsl(${(this.hp / this.maxHp) * 120}, 80%, 45%)`;
+    ctx.fillRect(barX, barY, barW * (this.hp / this.maxHp), 5);
+  }
+}
+```
+
+### Cola de Respawn (`respawnQueue`)
+
+```js
+function processRespawnQueue(state, dt) {
+  const aliveCount = state.enemies.filter(e => e.alive && e.deathTimer < 0).length;
+
+  for (const entry of state.respawnQueue) {
+    entry.elapsed += dt;
+    if (entry.elapsed >= entry.delay && aliveCount < 6) {
+      entry.done = true;
+      const spawnWorldX = state.scrollX + LOGICAL_WIDTH + 80; // fuera de pantalla, a la derecha
+      const spawnY      = LOGICAL_HEIGHT - 140;
+      const diffFactor  = Math.min(state.worldX / 5000, 1);
+      const newEnemy    = entry.type === 'Calamardo'
+        ? new Calamardo(spawnWorldX, spawnY)
+        : new BobEsponja(spawnWorldX, spawnY);
+      newEnemy.speed *= (1 + diffFactor * 0.6);
+      state.enemies.push(newEnemy);
+    }
+  }
+  state.respawnQueue = state.respawnQueue.filter(e => !e.done);
+}
+```
+
+**Reglas del Respawn:**
+- Máximo **6 enemigos vivos** simultáneamente en Fase 1. Si se alcanza el máximo, los respawns se posponen hasta que alguno muera o salga de pantalla.
+- El delay de 4 segundos da al jugador un breve respiro tras matar a un enemigo.
+- El nuevo enemigo siempre aparece **fuera de la pantalla por la derecha** para evitar que aparezca encima del jugador.
+- En Fase 2, el mismo mecanismo aplica a `DonCangrejo` con delay de 5 segundos y máximo de 4 enemigos.
+
+### Colisiones actualizadas (Fase 1)
+
+```js
+function checkPhase1Collisions() {
+  // Ink balls vs enemigos
+  for (const ball of player.inkBalls) {
+    for (const enemy of phase1State.enemies) {
+      if (!enemy.alive || enemy.deathTimer >= 0) continue;
+      const screenX = enemy.worldX - phase1State.scrollX;
+      if (circleRectCollide(ball.x, ball.y, 8, screenX, enemy.y, enemy.w, enemy.h)) {
+        ball.alive = false;
+        enemy.hit(); // quita 1 HP; si llega a 0 dispara die() → respawnQueue
+      }
+    }
+  }
+  player.inkBalls = player.inkBalls.filter(b => b.alive && b.x < LOGICAL_WIDTH + 50 && b.x > -50);
+
+  // Enemigo toca a Pulpito
+  for (const enemy of phase1State.enemies) {
+    if (!enemy.alive || enemy.deathTimer >= 0 || enemy.stunTime > 0) continue;
+    const screenX = enemy.worldX - phase1State.scrollX;
+    if (aabbCollide(player.getBBox(), { x: screenX, y: enemy.y, w: enemy.w, h: enemy.h })) {
+      if (player.invincibleTime <= 0) {
+        player.lives -= 1;
+        player.invincibleTime = 2.0;
+        SoundManager.play('playerHit');
+      }
+    }
+  }
+
+  // Sacos de dinero
+  for (const bag of phase1State.moneybags) {
+    if (!bag.alive) continue;
+    const screenX = bag.worldX - phase1State.scrollX;
+    if (aabbCollide(player.getBBox(), { x: screenX, y: bag.y, w: bag.w, h: bag.h })) {
+      bag.alive = false;
+      player.coins += bag.value;
+      SoundManager.play('coinPickup');
+    }
+  }
+}
+```
+
+### Sonidos adicionales
+
+```js
+soundManager.define('enemyHit',   { type: 'square',   frequency: 350, duration: 0.12, gain: 0.3,  sweep: 200 });
+soundManager.define('enemyDeath', { type: 'sawtooth', frequency: 180, duration: 0.4,  gain: 0.45, sweep: 60  });
+```
+
+---
+
 ## 21. Checklist de Implementación para Copilot
 
 - [ ] Crear `index.html` con la estructura descrita en §3, título de colores, canvas responsive.
@@ -1236,7 +1551,18 @@ if (document.readyState === 'loading') {
 - [ ] Implementar `drawCalamardo()`, `drawBobEsponja()`, `drawDonCangrejo()` (§9).
 - [ ] Implementar `drawTiburon()` con barra de vida y mini tiburones (§9.4–9.5).
 - [ ] Implementar sistema de Parallax Scrolling con 5 capas (§10).
-- [ ] Implementar Fase 1 completa con dificultad progresiva (§11).
+- [ ] Implementar coordenadas de mundo (`worldX`) en todas las entidades de Fase 1 (§22).
+- [ ] Implementar `spawnContentIfNeeded()` para generar sacos y oleadas de enemigos dinámicamente (§22).
+- [ ] Implementar `pruneOffScreenEntities()` para limpiar entidades fuera de pantalla (§22).
+- [ ] Implementar `spawnEnemyWave()` con dificultad escalada (§22).
+- [ ] Implementar Fase 1 completa con dificultad progresiva y streaming de contenido (§11, §22).
+- [ ] Implementar clase `Enemy` base con `hp`, `hit()`, `die()`, `stunTime` y `deathTimer` (§23).
+- [ ] Implementar animación de muerte vectorial `renderDeathExplosion()` (§23).
+- [ ] Implementar barra de vida pequeña sobre cada enemigo (§23).
+- [ ] Implementar cola de respawn `respawnQueue` con límite de 6 enemigos simultáneos (§23).
+- [ ] Implementar `processRespawnQueue()` con spawn fuera de pantalla a la derecha (§23).
+- [ ] Actualizar `checkPhase1Collisions()` para usar `enemy.hit()` en lugar de stun (§23).
+- [ ] Añadir sonidos `enemyHit` y `enemyDeath` al `SoundManager` (§23).
 - [ ] Implementar Fase 2 con perseguidores y hamburguesas (§12).
 - [ ] Implementar Fase 3 con jefe tiburón y mini tiburones (§13).
 - [ ] Implementar detección de colisiones AABB y círculo-rectángulo (§14).
