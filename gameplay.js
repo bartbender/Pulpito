@@ -31,6 +31,7 @@ let canvas, ctx, scaleX = 1, scaleY = 1;
 // ─── Singletons ───────────────────────────────────────────────────────────────
 let player, soundManager, sceneManager;
 let frameCount = 0;
+let currentPhaseState = null; // referencia al estado de fase activo (para respawnQueue)
 
 // ─── Colisiones ──────────────────────────────────────────────────────────────
 function aabbCollide(a, b) {
@@ -505,9 +506,41 @@ function drawHamburger(ctx, x, y, w, h) {
 }
 
 // ─── Entidades enemigos ───────────────────────────────────────────────────────
+
+/**
+ * Renderiza explosión de tinta cuando un enemigo muere.
+ * Se llama con coordenadas de pantalla (screenX, screenY).
+ */
+function renderDeathExplosion(ctx, screenX, screenY, w, timer, duration) {
+  const progress = timer / duration;
+  ctx.save();
+  ctx.globalAlpha = 1 - progress;
+  const particleCount = 12;
+  for (let i = 0; i < particleCount; i++) {
+    const angle = (i / particleCount) * Math.PI * 2;
+    const dist  = progress * w * 1.2;
+    const px    = screenX + w / 2 + Math.cos(angle) * dist;
+    const py    = screenY + w / 2 + Math.sin(angle) * dist;
+    const r     = (1 - progress) * 8 + 2;
+    ctx.beginPath();
+    ctx.arc(px, py, r, 0, Math.PI * 2);
+    ctx.fillStyle = i % 2 === 0 ? PALETTE.inkBlack : '#4444aa';
+    ctx.fill();
+  }
+  if (progress < 0.2) {
+    ctx.beginPath();
+    ctx.arc(screenX + w / 2, screenY + w / 2, w * 0.6 * (1 - progress / 0.2), 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255,255,255,0.8)';
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
 class Calamardo extends Entity {
   constructor(x, y) {
     super(x, y, 56, 80);
+    this.worldX        = x;         // coordenada de mundo (Fase 1); en Fase 2 == x de pantalla
+    this.spawnWorldX   = x;
     this.baseSpeed     = 80;
     this.speed         = 80;
     this.dir           = -1;
@@ -515,34 +548,117 @@ class Calamardo extends Entity {
     this.shootTimer    = 0;
     this.shootInterval = 4;
     this.bubbles       = [];
+    this.hp            = 5;
+    this.maxHp         = 5;
+    this.deathTimer    = -1;
+    this.DEATH_ANIM_DURATION = 0.6;
   }
-  update(dt, canShoot = false) {
+
+  hit() {
+    if (this.deathTimer >= 0) return;
+    this.hp--;
+    this.stunTime = 0.4;
+    soundManager.play('enemyHit');
+    if (this.hp <= 0) this.die();
+  }
+
+  die() {
+    this.deathTimer = 0;
+    soundManager.play('enemyDeath');
+    player.coins += 200;
+    if (currentPhaseState?.respawnQueue) {
+      currentPhaseState.respawnQueue.push({ type: 'Calamardo', delay: 4.0, elapsed: 0, done: false });
+    }
+  }
+
+  stun() {
+    this.stunTime = 2;
+    soundManager.play('enemyStun');
+  }
+
+  // scrollX: si se provee, usa worldX (Fase 1); si no, usa this.x (Fase 2)
+  update(dt, scrollX, canShoot = false) {
+    if (this.deathTimer >= 0) {
+      this.deathTimer += dt;
+      if (this.deathTimer >= this.DEATH_ANIM_DURATION) this.alive = false;
+      return;
+    }
     this.stunTime = Math.max(0, this.stunTime - dt);
-    if (this.stunTime > 0) return;
+    if (this.stunTime > 0) {
+      this.bubbles = this.bubbles.filter(b => b.alive);
+      this.bubbles.forEach(b => b.update(dt));
+      return;
+    }
 
-    this.x += this.dir * this.speed * dt;
-    if (this.x < 50 || this.x > LOGICAL_WIDTH - 100) this.dir *= -1;
-    this.y = LOGICAL_HEIGHT - this.h - 80;
+    if (scrollX !== undefined) {
+      // Fase 1: movimiento en coordenadas de mundo, patrulla alrededor del spawn
+      this.worldX += this.dir * this.speed * dt;
+      const minW = this.spawnWorldX - 160;
+      const maxW = this.spawnWorldX + 200;
+      if (this.worldX < minW || this.worldX > maxW) {
+        this.dir *= -1;
+        this.worldX = Math.max(minW, Math.min(maxW, this.worldX));
+      }
+      this.x = this.worldX; // mantener sincronizado
+      this.y = LOGICAL_HEIGHT - this.h - 80;
 
-    if (canShoot) {
-      this.shootTimer += dt;
-      if (this.shootTimer >= this.shootInterval) {
-        this.shootTimer = 0;
-        this.bubbles.push(new BubbleProjectile(this.x + this.w / 2, this.y + this.h / 2));
+      if (canShoot) {
+        this.shootTimer += dt;
+        if (this.shootTimer >= this.shootInterval) {
+          this.shootTimer = 0;
+          const sx = this.worldX - scrollX;
+          this.bubbles.push(new BubbleProjectile(sx + this.w / 2, this.y + this.h / 2));
+        }
+      }
+    } else {
+      // Fase 2: movimiento en coordenadas de pantalla
+      this.x += this.dir * this.speed * dt;
+      if (this.x < 50 || this.x > LOGICAL_WIDTH - 100) this.dir *= -1;
+      this.y = LOGICAL_HEIGHT - this.h - 80;
+      this.worldX = this.x;
+
+      if (canShoot) {
+        this.shootTimer += dt;
+        if (this.shootTimer >= this.shootInterval) {
+          this.shootTimer = 0;
+          this.bubbles.push(new BubbleProjectile(this.x + this.w / 2, this.y + this.h / 2));
+        }
       }
     }
     this.bubbles = this.bubbles.filter(b => b.alive);
     this.bubbles.forEach(b => b.update(dt));
   }
-  stun() {
-    this.stunTime = 2;
-    soundManager.play('enemyStun');
-  }
-  render(ctx) {
+
+  // scrollX: si se provee, calcula posición de pantalla desde worldX (Fase 1)
+  render(ctx, scrollX) {
+    const screenX = scrollX !== undefined ? this.worldX - scrollX : this.x;
+    if (screenX < -this.w - 50 || screenX > LOGICAL_WIDTH + 50) return;
+
+    if (this.deathTimer >= 0) {
+      renderDeathExplosion(ctx, screenX, this.y, this.w, this.deathTimer, this.DEATH_ANIM_DURATION);
+      return;
+    }
+
     ctx.save();
+    if (this.stunTime > 0 && Math.floor(Date.now() / 80) % 2 === 0) {
+      ctx.restore();
+      this.bubbles.forEach(b => b.render(ctx));
+      return;
+    }
     if (this.stunTime > 0) ctx.globalAlpha = 0.5;
-    drawCalamardo(ctx, this.x, this.y, this.w, this.h);
+    drawCalamardo(ctx, screenX, this.y, this.w, this.h);
     ctx.restore();
+
+    if (this.hp < this.maxHp && this.deathTimer < 0) {
+      const barW = this.w * 0.8;
+      const barX = screenX + this.w * 0.1;
+      const barY = this.y - 10;
+      ctx.fillStyle = '#333';
+      ctx.fillRect(barX, barY, barW, 5);
+      ctx.fillStyle = `hsl(${(this.hp / this.maxHp) * 120}, 80%, 45%)`;
+      ctx.fillRect(barX, barY, barW * (this.hp / this.maxHp), 5);
+    }
+
     this.bubbles.forEach(b => b.render(ctx));
   }
 }
@@ -550,40 +666,122 @@ class Calamardo extends Entity {
 class BobEsponja extends Entity {
   constructor(x, y) {
     super(x, y, 50, 80);
+    this.worldX        = x;
+    this.spawnWorldX   = x;
     this.speed         = 90;
+    this.baseSpeed     = 90;
     this.dir           = 1;
     this.stunTime      = 0;
     this.shootTimer    = 0;
     this.shootInterval = 3.5;
     this.bubbles       = [];
+    this.hp            = 5;
+    this.maxHp         = 5;
+    this.deathTimer    = -1;
+    this.DEATH_ANIM_DURATION = 0.6;
   }
-  update(dt, canShoot = false) {
+
+  hit() {
+    if (this.deathTimer >= 0) return;
+    this.hp--;
+    this.stunTime = 0.4;
+    soundManager.play('enemyHit');
+    if (this.hp <= 0) this.die();
+  }
+
+  die() {
+    this.deathTimer = 0;
+    soundManager.play('enemyDeath');
+    player.coins += 200;
+    if (currentPhaseState?.respawnQueue) {
+      currentPhaseState.respawnQueue.push({ type: 'BobEsponja', delay: 4.0, elapsed: 0, done: false });
+    }
+  }
+
+  stun() {
+    this.stunTime = 2;
+    soundManager.play('enemyStun');
+  }
+
+  update(dt, scrollX, canShoot = false) {
+    if (this.deathTimer >= 0) {
+      this.deathTimer += dt;
+      if (this.deathTimer >= this.DEATH_ANIM_DURATION) this.alive = false;
+      return;
+    }
     this.stunTime = Math.max(0, this.stunTime - dt);
-    if (this.stunTime > 0) return;
+    if (this.stunTime > 0) {
+      this.bubbles = this.bubbles.filter(b => b.alive);
+      this.bubbles.forEach(b => b.update(dt));
+      return;
+    }
 
-    this.x += this.dir * this.speed * dt;
-    if (this.x < 50 || this.x > LOGICAL_WIDTH - 100) this.dir *= -1;
-    this.y = LOGICAL_HEIGHT - this.h - 80;
+    if (scrollX !== undefined) {
+      this.worldX += this.dir * this.speed * dt;
+      const minW = this.spawnWorldX - 160;
+      const maxW = this.spawnWorldX + 200;
+      if (this.worldX < minW || this.worldX > maxW) {
+        this.dir *= -1;
+        this.worldX = Math.max(minW, Math.min(maxW, this.worldX));
+      }
+      this.x = this.worldX;
+      this.y = LOGICAL_HEIGHT - this.h - 80;
 
-    if (canShoot) {
-      this.shootTimer += dt;
-      if (this.shootTimer >= this.shootInterval) {
-        this.shootTimer = 0;
-        this.bubbles.push(new BubbleProjectile(this.x + this.w / 2, this.y + this.h / 2));
+      if (canShoot) {
+        this.shootTimer += dt;
+        if (this.shootTimer >= this.shootInterval) {
+          this.shootTimer = 0;
+          const sx = this.worldX - scrollX;
+          this.bubbles.push(new BubbleProjectile(sx + this.w / 2, this.y + this.h / 2));
+        }
+      }
+    } else {
+      this.x += this.dir * this.speed * dt;
+      if (this.x < 50 || this.x > LOGICAL_WIDTH - 100) this.dir *= -1;
+      this.y = LOGICAL_HEIGHT - this.h - 80;
+      this.worldX = this.x;
+
+      if (canShoot) {
+        this.shootTimer += dt;
+        if (this.shootTimer >= this.shootInterval) {
+          this.shootTimer = 0;
+          this.bubbles.push(new BubbleProjectile(this.x + this.w / 2, this.y + this.h / 2));
+        }
       }
     }
     this.bubbles = this.bubbles.filter(b => b.alive);
     this.bubbles.forEach(b => b.update(dt));
   }
-  stun() {
-    this.stunTime = 2;
-    soundManager.play('enemyStun');
-  }
-  render(ctx) {
+
+  render(ctx, scrollX) {
+    const screenX = scrollX !== undefined ? this.worldX - scrollX : this.x;
+    if (screenX < -this.w - 50 || screenX > LOGICAL_WIDTH + 50) return;
+
+    if (this.deathTimer >= 0) {
+      renderDeathExplosion(ctx, screenX, this.y, this.w, this.deathTimer, this.DEATH_ANIM_DURATION);
+      return;
+    }
+
     ctx.save();
+    if (this.stunTime > 0 && Math.floor(Date.now() / 80) % 2 === 0) {
+      ctx.restore();
+      this.bubbles.forEach(b => b.render(ctx));
+      return;
+    }
     if (this.stunTime > 0) ctx.globalAlpha = 0.5;
-    drawBobEsponja(ctx, this.x, this.y, this.w, this.h);
+    drawBobEsponja(ctx, screenX, this.y, this.w, this.h);
     ctx.restore();
+
+    if (this.hp < this.maxHp && this.deathTimer < 0) {
+      const barW = this.w * 0.8;
+      const barX = screenX + this.w * 0.1;
+      const barY = this.y - 10;
+      ctx.fillStyle = '#333';
+      ctx.fillRect(barX, barY, barW, 5);
+      ctx.fillStyle = `hsl(${(this.hp / this.maxHp) * 120}, 80%, 45%)`;
+      ctx.fillRect(barX, barY, barW * (this.hp / this.maxHp), 5);
+    }
+
     this.bubbles.forEach(b => b.render(ctx));
   }
 }
@@ -677,16 +875,19 @@ class Hamburger extends Entity {
 class Moneybag extends Entity {
   constructor(x, y, value) {
     super(x, y, 36, 36);
+    this.worldX  = x;   // coordenada de mundo (Fase 1)
     this.value   = value;
     this.bobTime = Math.random() * Math.PI * 2;
   }
   update(dt) {
     this.bobTime += dt * 2;
   }
-  render(ctx) {
+  render(ctx, scrollX) {
+    const screenX = scrollX !== undefined ? this.worldX - scrollX : this.x;
+    if (screenX < -this.w - 50 || screenX > LOGICAL_WIDTH + 50) return;
     const yOff = Math.sin(this.bobTime) * 4;
     ctx.save();
-    ctx.translate(this.x + this.w / 2, this.y + this.h / 2 + yOff);
+    ctx.translate(screenX + this.w / 2, this.y + this.h / 2 + yOff);
     // Saco
     ctx.beginPath();
     ctx.ellipse(0, 4, this.w * 0.42, this.h * 0.4, 0, 0, Math.PI * 2);
@@ -1056,15 +1257,94 @@ function renderConfetti(ctx, dt) {
 }
 
 // ─── Función de ayuda: generación de sacos de dinero ─────────────────────────
-function generateMoneybags(count) {
+function generateMoneybags(count, startWorldX = 0) {
   const bags = [];
   for (let i = 0; i < count; i++) {
-    const x     = 200 + i * 80 + Math.random() * 40;
-    const value = [100, 200, 300, 500][Math.floor(Math.random() * 4)];
-    const yPos  = LOGICAL_HEIGHT - 120 - Math.random() * 100;
-    bags.push(new Moneybag(x, yPos, value));
+    const worldX = startWorldX + 80 + i * 160 + Math.random() * 80;
+    const value  = 150 + Math.floor(Math.random() * 251); // 150–400 CE
+    const roll   = Math.random();
+    let yPos;
+    if (roll < 0.3) {
+      yPos = LOGICAL_HEIGHT - 80 - 40;                   // suelo: fácil
+    } else if (roll < 0.8) {
+      yPos = LOGICAL_HEIGHT - 200 - Math.random() * 140; // media altura
+    } else {
+      yPos = 80 + Math.random() * 80;                    // plataforma alta
+    }
+    const bag = new Moneybag(worldX, yPos, value);
+    bags.push(bag);
   }
   return bags;
+}
+
+// ─── Streaming de Mundo — Fase 1 (§22) ───────────────────────────────────────
+const BAG_SPAWN_INTERVAL   = 350; // px de worldX entre sacos
+const ENEMY_SPAWN_INTERVAL = 700; // px de worldX entre oleadas de enemigos
+
+function spawnContentIfNeeded(state) {
+  // Sacos de dinero: siempre un paso por delante de la pantalla
+  while (state.worldX + LOGICAL_WIDTH > state.nextBagWorld) {
+    const bagWorldX = state.nextBagWorld + LOGICAL_WIDTH;
+    const roll      = Math.random();
+    let bagY;
+    if (roll < 0.3) {
+      bagY = LOGICAL_HEIGHT - 80 - 40;
+    } else if (roll < 0.8) {
+      bagY = LOGICAL_HEIGHT - 200 - Math.random() * 140;
+    } else {
+      bagY = 80 + Math.random() * 80;
+    }
+    const value = 150 + Math.floor(Math.random() * 251);
+    state.moneybags.push(new Moneybag(bagWorldX, bagY, value));
+    state.nextBagWorld += BAG_SPAWN_INTERVAL;
+  }
+
+  // Oleadas de enemigos
+  while (state.worldX + LOGICAL_WIDTH > state.nextEnemyWorld) {
+    spawnEnemyWave(state, state.nextEnemyWorld + LOGICAL_WIDTH);
+    state.nextEnemyWorld += ENEMY_SPAWN_INTERVAL;
+  }
+}
+
+function spawnEnemyWave(state, worldX) {
+  const difficultyFactor = Math.min(state.worldX / 5000, 1);
+  const count = 1 + Math.floor(difficultyFactor * 2); // 1–3 enemigos
+  for (let i = 0; i < count; i++) {
+    const type  = Math.random() < 0.5 ? 'calamardo' : 'bob';
+    const y     = LOGICAL_HEIGHT - 140;
+    const enemy = type === 'calamardo'
+      ? new Calamardo(worldX + i * 180, y)
+      : new BobEsponja(worldX + i * 180, y);
+    enemy.speed     *= (1 + difficultyFactor * 0.6);
+    enemy.baseSpeed  = enemy.speed;
+    state.enemies.push(enemy);
+  }
+}
+
+function pruneOffScreenEntities(state) {
+  const leftBound = state.scrollX - 200;
+  state.moneybags = state.moneybags.filter(b => b.worldX > leftBound && b.alive);
+  state.enemies   = state.enemies.filter(e => e.worldX > leftBound && e.alive);
+}
+
+function processRespawnQueue(state, dt) {
+  const aliveCount = state.enemies.filter(e => e.alive && e.deathTimer < 0).length;
+  for (const entry of state.respawnQueue) {
+    entry.elapsed += dt;
+    if (entry.elapsed >= entry.delay && aliveCount < 6) {
+      entry.done = true;
+      const spawnWorldX  = state.scrollX + LOGICAL_WIDTH + 80;
+      const spawnY       = LOGICAL_HEIGHT - 140;
+      const diffFactor   = Math.min(state.worldX / 5000, 1);
+      const newEnemy = entry.type === 'Calamardo'
+        ? new Calamardo(spawnWorldX, spawnY)
+        : new BobEsponja(spawnWorldX, spawnY);
+      newEnemy.speed    *= (1 + diffFactor * 0.6);
+      newEnemy.baseSpeed = newEnemy.speed;
+      state.enemies.push(newEnemy);
+    }
+  }
+  state.respawnQueue = state.respawnQueue.filter(e => !e.done);
 }
 
 // ─── Estado: Menú ─────────────────────────────────────────────────────────────
@@ -1156,6 +1436,7 @@ class MenuState extends State {
 // ─── Estado: Fase 1 ───────────────────────────────────────────────────────────
 class Phase1State extends State {
   enter() {
+    currentPhaseState  = this;
     player.lives  = 5;
     player.coins  = 0;
     player.x      = 120;
@@ -1168,41 +1449,38 @@ class Phase1State extends State {
       new Calamardo(600, LOGICAL_HEIGHT - 140),
       new BobEsponja(800, LOGICAL_HEIGHT - 140),
     ];
-    this.moneybags     = generateMoneybags(25);
+    this.moneybags     = generateMoneybags(5, 0);   // 5 sacos en zona inicial
     this.scrollX       = 0;
+    this.worldX        = 0;                          // coordenada de mundo acumulada
+    this.nextBagWorld  = 400;                        // siguiente worldX para spawn de saco
+    this.nextEnemyWorld = 800;                       // siguiente worldX para oleada de enemigos
+    this.respawnQueue  = [];
     this.canShoot      = false;
-    this.extraSpawned  = false;
     initBubbles();
   }
 
   update(dt) {
     updateBubbles(dt);
-    this.scrollX += SCROLL_SPEED * dt;
 
-    // Dificultad progresiva: velocidad
+    // Avance del mundo
+    const delta = SCROLL_SPEED * dt;
+    this.scrollX += delta;
+    this.worldX  += delta;
+
+    // Dificultad progresiva: velocidad de patrulla
     const speedMult = 1 + Math.floor(player.coins / 2000) * 0.15;
     this.enemies.forEach(e => { e.speed = e.baseSpeed * speedMult; });
 
-    // A los 5000: segundo Calamardo y Bob
-    if (player.coins >= 5000 && !this.extraSpawned) {
-      this.extraSpawned = true;
-      const extra1 = new Calamardo(700, LOGICAL_HEIGHT - 140);
-      extra1.dir = 1;
-      const extra2 = new BobEsponja(400, LOGICAL_HEIGHT - 140);
-      extra2.dir = -1;
-      this.enemies.push(extra1, extra2);
-    }
-
     // A los 8000: enemigos disparan
     this.canShoot = player.coins >= 8000;
-    this.enemies.forEach(e => e.update(dt, this.canShoot));
+    this.enemies.forEach(e => e.update(dt, this.scrollX, this.canShoot));
 
-    // Reponer sacos consumidos
-    this.moneybags = this.moneybags.filter(b => b.alive);
-    if (this.moneybags.length < 10) {
-      const extra = generateMoneybags(8);
-      this.moneybags.push(...extra);
-    }
+    // Streaming de contenido
+    spawnContentIfNeeded(this);
+    processRespawnQueue(this, dt);
+    pruneOffScreenEntities(this);
+
+    // Actualizar sacos
     this.moneybags.forEach(b => b.update(dt));
 
     // Input
@@ -1221,8 +1499,8 @@ class Phase1State extends State {
   render(ctx) {
     drawSeaBackground(ctx, this.scrollX);
     drawBankBuilding(ctx, this.scrollX);
-    this.moneybags.forEach(b => b.render(ctx));
-    this.enemies.forEach(e => e.render(ctx));
+    this.moneybags.forEach(b => b.render(ctx, this.scrollX));
+    this.enemies.forEach(e => e.render(ctx, this.scrollX));
     player.render(ctx);
     renderHUD(ctx, 1);
   }
@@ -1258,40 +1536,50 @@ function handlePhase1Input(dt, state) {
 }
 
 function checkPhase1Collisions(state) {
-  // Sacos de dinero
+  // Bolas de tinta → sacos de dinero (para limpiarlos en pantalla)
+  // Sacos de dinero → jugador
   for (const bag of state.moneybags) {
     if (!bag.alive) continue;
-    if (aabbCollide(player, bag)) {
-      player.coins += bag.value;
+    const screenX = bag.worldX - state.scrollX;
+    if (aabbCollide(player.getBBox(), { x: screenX, y: bag.y, w: bag.w, h: bag.h })) {
       bag.alive = false;
+      player.coins += bag.value;
       soundManager.play('coinPickup');
     }
   }
 
-  // Enemigos → jugador
-  for (const enemy of state.enemies) {
-    if (aabbCollide(player, enemy)) {
-      player.takeDamage();
-    }
-    // Proyectiles del enemigo → jugador
-    const projs = enemy.bubbles || [];
-    for (const proj of projs) {
-      if (!proj.alive) continue;
-      if (circleRectCollide(proj.x + proj.r, proj.y + proj.r, proj.r, player.x, player.y, player.w, player.h)) {
-        proj.alive = false;
-        player.takeDamage();
+  // Bolas de tinta → enemigos (usa hit() para reducir HP)
+  for (const ball of player.inkBalls) {
+    if (!ball.alive) continue;
+    for (const enemy of state.enemies) {
+      if (!enemy.alive || enemy.deathTimer >= 0 || enemy.stunTime > 0) continue;
+      const screenX = enemy.worldX - state.scrollX;
+      if (circleRectCollide(ball.x + ball.r, ball.y + ball.r, ball.r,
+          screenX, enemy.y, enemy.w, enemy.h)) {
+        ball.alive = false;
+        enemy.hit();
+        break;
       }
     }
   }
 
-  // Bolas de tinta del jugador → enemigos
-  for (const ball of player.inkBalls) {
-    if (!ball.alive) continue;
-    for (const enemy of state.enemies) {
-      if (circleRectCollide(ball.x + ball.r, ball.y + ball.r, ball.r, enemy.x, enemy.y, enemy.w, enemy.h)) {
-        ball.alive = false;
-        enemy.stun();
-        break;
+  // Proyectiles de enemigo (burbujas) → jugador
+  for (const enemy of state.enemies) {
+    if (!enemy.alive || enemy.deathTimer >= 0) continue;
+    // Colisión cuerpo a cuerpo
+    const screenX = enemy.worldX - state.scrollX;
+    if (enemy.stunTime <= 0 &&
+        aabbCollide(player.getBBox(), { x: screenX, y: enemy.y, w: enemy.w, h: enemy.h })) {
+      player.takeDamage();
+    }
+    // Burbujas
+    const projs = enemy.bubbles || [];
+    for (const proj of projs) {
+      if (!proj.alive) continue;
+      if (circleRectCollide(proj.x + proj.r, proj.y + proj.r, proj.r,
+          player.x, player.y, player.w, player.h)) {
+        proj.alive = false;
+        player.takeDamage();
       }
     }
   }
@@ -1491,6 +1779,7 @@ class Phase2WinState extends State {
 // ─── Estado: Fase 3 ───────────────────────────────────────────────────────────
 class Phase3State extends State {
   enter() {
+    currentPhaseState = null; // Fase 3 no usa respawnQueue
     player.lives = 5;
     player.x = 100;
     player.y = player.groundY;
@@ -1802,6 +2091,8 @@ export function Initialize() {
   soundManager.define('coinPickup', { type: 'sine',     frequency: 880, duration: 0.15, gain: 0.3, sweep: 1200 });
   soundManager.define('playerHit',  { type: 'square',   frequency: 150, duration: 0.25, gain: 0.4, sweep: 80 });
   soundManager.define('enemyStun',  { type: 'sine',     frequency: 300, duration: 0.2,  gain: 0.25, sweep: 100 });
+  soundManager.define('enemyHit',   { type: 'square',   frequency: 350, duration: 0.12, gain: 0.3,  sweep: 200 });
+  soundManager.define('enemyDeath', { type: 'sawtooth', frequency: 180, duration: 0.4,  gain: 0.45, sweep: 60 });
   soundManager.define('bossHit',    { type: 'sawtooth', frequency: 100, duration: 0.3,  gain: 0.5, sweep: 40 });
   soundManager.define('victory',    { type: 'sine',     frequency: 523, duration: 0.6,  gain: 0.4, sweep: 1046 });
   soundManager.define('gameOver',   { type: 'sawtooth', frequency: 200, duration: 0.8,  gain: 0.4, sweep: 80 });
