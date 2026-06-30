@@ -96,7 +96,7 @@ class InkBall extends Entity {
 }
 
 // ─── Dibujo de Pulpito ────────────────────────────────────────────────────────
-function drawPulpito(ctx, x, y, w, h, blink = false) {
+function drawPulpito(ctx, x, y, w, h, blink = false, showWeapon = true) {
   if (blink && Math.floor(Date.now() / 100) % 2 === 0) return;
   ctx.save();
   ctx.translate(x + w / 2, y + h / 2);
@@ -168,15 +168,17 @@ function drawPulpito(ctx, x, y, w, h, blink = false) {
     ctx.fill();
   });
 
-  // Pistola de bolas de tinta
-  ctx.fillStyle = '#222';
-  ctx.fillRect(w * 0.3, h * 0.05, w * 0.28, h * 0.1);
-  ctx.fillRect(w * 0.52, h * 0.02, w * 0.1, h * 0.06);
-  // Bola de tinta en cañón
-  ctx.beginPath();
-  ctx.arc(w * 0.65, h * 0.05, w * 0.05, 0, Math.PI * 2);
-  ctx.fillStyle = PALETTE.inkBlack;
-  ctx.fill();
+  if (showWeapon) {
+    // Pistola de bolas de tinta
+    ctx.fillStyle = '#222';
+    ctx.fillRect(w * 0.3, h * 0.05, w * 0.28, h * 0.1);
+    ctx.fillRect(w * 0.52, h * 0.02, w * 0.1, h * 0.06);
+    // Bola de tinta en cañón
+    ctx.beginPath();
+    ctx.arc(w * 0.65, h * 0.05, w * 0.05, 0, Math.PI * 2);
+    ctx.fillStyle = PALETTE.inkBlack;
+    ctx.fill();
+  }
 
   ctx.restore();
 }
@@ -193,6 +195,7 @@ class Player extends Entity {
     this.shootCooldown = 0;
     this.inkBalls     = [];
     this.invincibleTime = 0;
+    this.weaponEnabled = true;
     this.groundY      = LOGICAL_HEIGHT - 160;
     this.jumpVy       = -700;
     this.gravity      = 1200;
@@ -247,9 +250,9 @@ class Player extends Entity {
     if (!this.facingRight) {
       ctx.translate(this.x + this.w, 0);
       ctx.scale(-1, 1);
-      drawPulpito(ctx, 0, this.y, this.w, this.h, this.invincibleTime > 0);
+      drawPulpito(ctx, 0, this.y, this.w, this.h, this.invincibleTime > 0, this.weaponEnabled);
     } else {
-      drawPulpito(ctx, this.x, this.y, this.w, this.h, this.invincibleTime > 0);
+      drawPulpito(ctx, this.x, this.y, this.w, this.h, this.invincibleTime > 0, this.weaponEnabled);
     }
     ctx.restore();
     this.inkBalls.forEach(b => b.render(ctx));
@@ -509,6 +512,128 @@ function drawHamburger(ctx, x, y, w, h) {
   ctx.beginPath(); ctx.ellipse(w / 2, h * 0.82, w * 0.45, h * 0.18, 0, 0, Math.PI * 2);
   ctx.fillStyle = '#c8870a'; ctx.fill();
   ctx.restore();
+}
+
+function drawMarineCactus(ctx, x, y, w, h) {
+  ctx.save();
+  ctx.translate(x + w / 2, y + h / 2);
+  ctx.fillStyle = '#1f9d73';
+  ctx.strokeStyle = '#0f6f50';
+  ctx.lineWidth = 2;
+
+  ctx.beginPath();
+  ctx.roundRect(-w * 0.2, -h * 0.45, w * 0.4, h * 0.85, 12);
+  ctx.fill(); ctx.stroke();
+
+  ctx.beginPath();
+  ctx.roundRect(-w * 0.42, -h * 0.15, w * 0.22, h * 0.3, 10);
+  ctx.fill(); ctx.stroke();
+  ctx.beginPath();
+  ctx.roundRect(w * 0.2, -h * 0.05, w * 0.22, h * 0.28, 10);
+  ctx.fill(); ctx.stroke();
+
+  ctx.strokeStyle = '#d9f6ff';
+  ctx.lineWidth = 1.8;
+  for (let i = -2; i <= 2; i++) {
+    const sy = -h * 0.33 + i * h * 0.15;
+    ctx.beginPath(); ctx.moveTo(-w * 0.2, sy); ctx.lineTo(-w * 0.3, sy - 6); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo( w * 0.2, sy); ctx.lineTo( w * 0.3, sy - 6); ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawSeaUrchin(ctx, x, y, w, h, spin = 0) {
+  ctx.save();
+  ctx.translate(x + w / 2, y + h / 2);
+  ctx.rotate(spin);
+  for (let i = 0; i < 18; i++) {
+    const angle = (i / 18) * Math.PI * 2;
+    const len = w * (0.42 + (i % 2) * 0.08);
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(angle) * w * 0.1, Math.sin(angle) * h * 0.1);
+    ctx.lineTo(Math.cos(angle) * len, Math.sin(angle) * len);
+    ctx.strokeStyle = '#5d2ca8';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+  ctx.beginPath();
+  ctx.arc(0, 0, w * 0.24, 0, Math.PI * 2);
+  ctx.fillStyle = '#8a4de6';
+  ctx.fill();
+  ctx.strokeStyle = '#4b228c';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawGiantClam(ctx, x, y, w, h, bitePhase = 0) {
+  const open = 0.25 + (Math.sin(bitePhase) * 0.5 + 0.5) * 0.55;
+  ctx.save();
+  ctx.translate(x + w / 2, y + h * 0.58);
+
+  ctx.beginPath();
+  ctx.ellipse(0, 0, w * 0.45, h * 0.25, 0, 0, Math.PI * 2);
+  ctx.fillStyle = '#85586f';
+  ctx.fill();
+  ctx.strokeStyle = '#5e3a4c';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  ctx.save();
+  ctx.translate(0, -h * 0.08);
+  ctx.rotate(-open);
+  ctx.beginPath();
+  ctx.ellipse(0, 0, w * 0.45, h * 0.2, 0, Math.PI, 0);
+  ctx.fillStyle = '#d3a7bf';
+  ctx.fill();
+  ctx.strokeStyle = '#85586f';
+  ctx.stroke();
+  ctx.restore();
+
+  ctx.fillStyle = '#f8dfe9';
+  for (let i = 0; i < 6; i++) {
+    const tx = -w * 0.27 + i * w * 0.11;
+    ctx.beginPath();
+    ctx.moveTo(tx, -h * 0.03);
+    ctx.lineTo(tx + 4, -h * (0.13 + open * 0.22));
+    ctx.lineTo(tx + 8, -h * 0.03);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  ctx.restore();
+}
+
+class Phase2Obstacle extends Entity {
+  constructor(type, worldX) {
+    const base = type === 'cactus'
+      ? { w: 54, h: 78 }
+      : type === 'urchin'
+        ? { w: 56, h: 56 }
+        : { w: 96, h: 72 };
+    super(worldX, LOGICAL_HEIGHT - 80 - base.h, base.w, base.h);
+    this.type = type;
+    this.worldX = worldX;
+    this.spin = Math.random() * Math.PI * 2;
+    this.bitePhase = Math.random() * Math.PI * 2;
+  }
+
+  update(dt) {
+    if (this.type === 'urchin') this.spin += dt * 4.5;
+    if (this.type === 'clam')   this.bitePhase += dt * 3;
+  }
+
+  getScreenBox(scrollX) {
+    return { x: this.worldX - scrollX, y: this.y, w: this.w, h: this.h };
+  }
+
+  render(ctx, scrollX) {
+    const sx = this.worldX - scrollX;
+    if (sx < -this.w - 60 || sx > LOGICAL_WIDTH + 60) return;
+    if (this.type === 'cactus') drawMarineCactus(ctx, sx, this.y, this.w, this.h);
+    else if (this.type === 'urchin') drawSeaUrchin(ctx, sx, this.y, this.w, this.h, this.spin);
+    else drawGiantClam(ctx, sx, this.y, this.w, this.h, this.bitePhase);
+  }
 }
 
 // ─── Entidades enemigos ───────────────────────────────────────────────────────
@@ -1228,16 +1353,19 @@ function _refreshTouchVKeys() {
 }
 
 // ─── HUD táctil (botones en pantalla) ────────────────────────────────────────
-function renderTouchControls(ctx) {
+function renderTouchControls(ctx, options = {}) {
   if (!hasTouchScreen) return;
+  const showShoot = options.showShoot ?? true;
   ctx.save();
 
   const buttons = [
     { label: '\u2190', x: 18,  y: 454, w: 76, h: 68, active: touchVKeys.left  },
     { label: '\u2192', x: 104, y: 454, w: 76, h: 68, active: touchVKeys.right },
     { label: '\u2191', x: 432, y: 454, w: 96, h: 68, active: _jumpQueued      },
-    { label: '\u25CF', x: 846, y: 454, w: 96, h: 68, active: touchVKeys.shoot },
   ];
+  if (showShoot) {
+    buttons.push({ label: '\u25CF', x: 846, y: 454, w: 96, h: 68, active: touchVKeys.shoot });
+  }
 
   for (const btn of buttons) {
     ctx.globalAlpha = btn.active ? 0.75 : 0.35;
@@ -1266,7 +1394,7 @@ function renderHUD(ctx, phase) {
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
   if (phase === 1) {
-    ctx.fillText(`💰 ${player.coins.toLocaleString()} / 10000 CE`, 12, 8);
+    ctx.fillText(`💰 ${player.coins.toLocaleString()} / 5000 CE`, 12, 8);
   } else {
     ctx.fillText(`💰 ${player.coins.toLocaleString()} CE`, 12, 8);
   }
@@ -1559,7 +1687,7 @@ class Phase1State extends State {
     // Colisiones
     checkPhase1Collisions(this);
 
-    if (player.coins >= 10000) sceneManager.changeState(new Phase1WinState());
+    if (player.coins >= 5000)  sceneManager.changeState(new Phase1WinState());
     if (player.lives <= 0)     sceneManager.changeState(new GameOverState());
   }
 
@@ -1689,43 +1817,82 @@ class Phase1WinState extends State {
 // ─── Estado: Fase 2 ───────────────────────────────────────────────────────────
 class Phase2State extends State {
   enter() {
+    player.weaponEnabled = false;
     player.x = 80;
     player.y = player.groundY;
     player.vx = 0; player.vy = 0;
     player.inkBalls = [];
     player.invincibleTime = 0;
+    player.facingRight = true;
+
     this.scrollX = 0;
-    this.doorX   = LOGICAL_WIDTH * 4.5;
-    this.enemies = [
-      new Calamardo(500, LOGICAL_HEIGHT - 140),
-      new BobEsponja(700, LOGICAL_HEIGHT - 140),
-      new DonCangrejo(LOGICAL_WIDTH - 80, LOGICAL_HEIGHT - 150),
+    this.baseScrollSpeed = SCROLL_SPEED * 1.7;
+    this.metersPerPixel = 0.34;
+    this.escapeGoalMeters = 2000;
+    this.doorX = this.escapeGoalMeters / this.metersPerPixel + 260;
+    this.distanceMeters = 0;
+
+    this.baseChaseDistance = 320;
+    this.chaseDistance = this.baseChaseDistance;
+    this.catchDistance = 92;
+    this.chaseStepOnHit = 58;
+    this.chasePauseTimer = 0;
+    this.obstacleHitCooldown = 0;
+    this.slowTimer = 0;
+
+    this.chasers = [
+      { type: 'calamardo', x: player.x - this.baseChaseDistance, y: LOGICAL_HEIGHT - 160, w: 56, h: 80, spacing: 0 },
+      { type: 'bob', x: player.x - this.baseChaseDistance - 90, y: LOGICAL_HEIGHT - 160, w: 50, h: 80, spacing: 90 },
+      { type: 'cangrejo', x: player.x - this.baseChaseDistance - 180, y: LOGICAL_HEIGHT - 150, w: 60, h: 70, spacing: 180 },
     ];
+    this.obstacles = [];
+    this.nextObstacleWorld = 480;
     initBubbles();
   }
 
   update(dt) {
     updateBubbles(dt);
+    this.obstacleHitCooldown = Math.max(0, this.obstacleHitCooldown - dt);
+    this.slowTimer = Math.max(0, this.slowTimer - dt);
+    this.chasePauseTimer = Math.max(0, this.chasePauseTimer - dt);
 
-    // Velocidad de scroll aumenta con el tiempo
-    const scrollSpeed = SCROLL_SPEED * 1.3 + this.scrollX * 0.01;
+    const speedPenalty = this.slowTimer > 0 ? 0.42 : 1;
+    const scrollSpeed = (this.baseScrollSpeed + this.scrollX * 0.008) * speedPenalty;
     this.scrollX += scrollSpeed * dt;
+    this.distanceMeters = Math.min(this.escapeGoalMeters, this.scrollX * this.metersPerPixel);
 
-    // Mover jugador para que no quede fuera de pantalla izquierda
-    player.x = Math.max(30, player.x);
+    while (this.scrollX + LOGICAL_WIDTH > this.nextObstacleWorld && this.nextObstacleWorld < this.doorX - 260) {
+      const roll = Math.random();
+      const type = roll < 0.35 ? 'cactus' : (roll < 0.7 ? 'urchin' : 'clam');
+      this.obstacles.push(new Phase2Obstacle(type, this.nextObstacleWorld + Math.random() * 120));
+      this.nextObstacleWorld += 220 + Math.random() * 180;
+    }
 
-    this.enemies.forEach(e => {
-      if (e instanceof DonCangrejo) {
-        e.speed = 110 + this.scrollX * 0.02;
-      } else {
-        e.speed = Math.min(180, e.baseSpeed + this.scrollX * 0.02);
-      }
-      e.update(dt);
-    });
+    this.obstacles.forEach(o => o.update(dt));
+    this.obstacles = this.obstacles.filter(o => o.worldX - this.scrollX > -220);
 
-    handlePhase2Input(dt);
+    handlePhase2Input(dt, this.slowTimer > 0);
     player.update(dt);
+
+    const approachSpeed = this.chasePauseTimer > 0 ? 0 : 8;
+    this.chaseDistance = Math.max(this.catchDistance, this.chaseDistance - approachSpeed * dt);
+
+    for (const chaser of this.chasers) {
+      const targetX = player.x - this.chaseDistance - chaser.spacing;
+      const followSpeed = this.chasePauseTimer > 0 ? 2.5 : 5.5;
+      chaser.x += (targetX - chaser.x) * Math.min(1, dt * followSpeed);
+      chaser.y = LOGICAL_HEIGHT - 80 - chaser.h;
+    }
+
     checkPhase2Collisions(this);
+
+    if (this.chaseDistance <= this.catchDistance && player.invincibleTime <= 0) {
+      player.takeDamage();
+      this.chaseDistance = this.baseChaseDistance;
+      this.chasePauseTimer = 2.1;
+    }
+
+    player.x = Math.max(30, player.x);
 
     // Condición de victoria: llegar a la puerta
     if (player.x >= this.doorX - this.scrollX) sceneManager.changeState(new Phase2WinState());
@@ -1734,15 +1901,24 @@ class Phase2State extends State {
 
   render(ctx) {
     drawSeaBackground(ctx, this.scrollX);
+
+    this.obstacles.forEach(o => o.render(ctx, this.scrollX));
+
     // Puerta de escape
     const dScreenX = this.doorX - this.scrollX;
     if (dScreenX < LOGICAL_WIDTH) {
       drawEscapeDoor(ctx, dScreenX, LOGICAL_HEIGHT - 200);
     }
-    this.enemies.forEach(e => e.render(ctx));
+
+    for (const chaser of this.chasers) {
+      if (chaser.type === 'calamardo') drawCalamardo(ctx, chaser.x, chaser.y, chaser.w, chaser.h);
+      else if (chaser.type === 'bob') drawBobEsponja(ctx, chaser.x, chaser.y, chaser.w, chaser.h);
+      else drawDonCangrejo(ctx, chaser.x, chaser.y, chaser.w, chaser.h);
+    }
+
     player.render(ctx);
     renderHUD(ctx, 2);
-    renderTouchControls(ctx);
+    renderTouchControls(ctx, { showShoot: false });
 
     // Distancia restante
     ctx.save();
@@ -1750,14 +1926,24 @@ class Phase2State extends State {
     ctx.fillStyle = '#aef';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
-    const dist = Math.max(0, Math.floor((this.doorX - this.scrollX - player.x) / 10));
+    const dist = Math.max(0, Math.ceil(this.escapeGoalMeters - this.distanceMeters));
     ctx.fillText(`🚪 Salida: ${dist}m`, LOGICAL_WIDTH / 2, 38);
+    ctx.fillStyle = '#ffb3b3';
+    ctx.fillText(`👥 Persecución: ${Math.round(this.chaseDistance)} px`, LOGICAL_WIDTH / 2, 60);
+    if (this.slowTimer > 0) {
+      ctx.fillStyle = '#ffd166';
+      ctx.fillText('🦪 ¡La almeja te está frenando!', LOGICAL_WIDTH / 2, 82);
+    }
     ctx.restore();
+  }
+
+  exit() {
+    player.weaponEnabled = true;
   }
 }
 
-function handlePhase2Input(dt) {
-  const SPEED = 240;
+function handlePhase2Input(dt, slowed = false) {
+  const SPEED = slowed ? 170 : 255;
   if (keys['ArrowLeft'] || keys['KeyA'] || touchVKeys.left) {
     player.x -= SPEED * dt;
     player.facingRight = false;
@@ -1772,47 +1958,24 @@ function handlePhase2Input(dt) {
     player.onGround  = false;
     _jumpQueued = false;
   }
-  if (keys['KeyZ'] || keys['KeyJ'] || keys['ControlLeft'] || keys['ControlRight'] || touchVKeys.shoot) {
-    player.shoot();
-  }
   while (inputQueue.length > 0) {
-    const ev = inputQueue.shift();
-    if (ev.type === 'shoot') player.shoot();
+    inputQueue.shift();
   }
 }
 
 function checkPhase2Collisions(state) {
-  for (const enemy of state.enemies) {
-    if (aabbCollide(player, enemy)) player.takeDamage();
-
-    // Hamburguesas
-    const hbs = enemy.hamburgers || [];
-    for (const hb of hbs) {
-      if (!hb.alive) continue;
-      if (aabbCollide(player, hb)) {
-        hb.alive = false;
-        player.takeDamage();
+  if (state.obstacleHitCooldown > 0) return;
+  const playerBox = player.getBBox();
+  for (const obstacle of state.obstacles) {
+    const box = obstacle.getScreenBox(state.scrollX);
+    if (aabbCollide(playerBox, box)) {
+      state.obstacleHitCooldown = 0.45;
+      state.chaseDistance = Math.max(state.catchDistance, state.chaseDistance - state.chaseStepOnHit);
+      if (obstacle.type === 'clam') {
+        state.slowTimer = Math.max(state.slowTimer, 1.8);
       }
-    }
-    // Burbujas
-    const projs = enemy.bubbles || [];
-    for (const proj of projs) {
-      if (!proj.alive) continue;
-      if (circleRectCollide(proj.x + proj.r, proj.y + proj.r, proj.r, player.x, player.y, player.w, player.h)) {
-        proj.alive = false;
-        player.takeDamage();
-      }
-    }
-  }
-
-  for (const ball of player.inkBalls) {
-    if (!ball.alive) continue;
-    for (const enemy of state.enemies) {
-      if (circleRectCollide(ball.x + ball.r, ball.y + ball.r, ball.r, enemy.x, enemy.y, enemy.w, enemy.h)) {
-        ball.alive = false;
-        enemy.stun();
-        break;
-      }
+      obstacle.worldX = state.scrollX - obstacle.w - 40;
+      break;
     }
   }
 }
