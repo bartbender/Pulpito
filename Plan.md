@@ -890,41 +890,33 @@ class Phase1State extends State {
 Pulpito debe escapar hacia la derecha alcanzando la **meta** (zona de escape marcada con una puerta brillante en la pared del fondo del mar) sin perder todas sus vidas.
 
 ### Mecánica de Juego
-- Perseguidores: **Calamardo, Bob Esponja y Don Cangrejo**, moviéndose más rápido a medida que Pulpito avanza.
-- Los perseguidores disparan **hamburguesas** (proyectiles rectangulares marrones con semillas).
-- Si una hamburguesa impacta a Pulpito, pierde 1 vida.
+- La fase funciona como una **persecución continua**: el fondo avanza automáticamente y Pulpito debe mantener la distancia con **Calamardo, Bob Esponja y Don Cangrejo**.
+- Los perseguidores se representan como una amenaza colectiva detrás del jugador; si la distancia de persecución cae por debajo del umbral de captura, Pulpito pierde 1 vida y la persecución se reinicia con una breve pausa.
+- Se generan obstáculos marinos dinámicos: **cactus marinos**, **erizos** y **almejas gigantes**.
+- Chocar con un obstáculo acerca a los perseguidores; además, la **almeja** aplica una penalización temporal de velocidad.
 - Pulpito **mantiene las vidas de la Fase 1**.
-- Pulpito sigue pudiendo disparar bolas de tinta para ralentizar a los perseguidores.
+- En esta fase, **Pulpito no dispara**; solo puede correr y saltar para esquivar obstáculos mientras alcanza la puerta de escape.
 
 ### Condición de Victoria
-Pulpito llega a la puerta de escape → `GameState.PHASE_2_WIN` → `GameState.PHASE_3`.
+Pulpito llega a la puerta de escape → `Phase2WinState` → Fase 3.
 
 ### Condición de Derrota
-`player.lives <= 0` → `GameState.GAME_OVER`.
+`player.lives <= 0` → `GameOverState`.
 
-### Elemento visual de hamburguesa
+### Obstáculos de la persecución
 
 ```js
-function drawHamburger(ctx, x, y, w, h) {
-  ctx.save(); ctx.translate(x, y);
-  // Pan superior
-  ctx.beginPath(); ctx.ellipse(w/2, h*0.15, w*0.45, h*0.2, 0, 0, Math.PI*2);
-  ctx.fillStyle = '#c8870a'; ctx.fill();
-  // Semillas
-  [[-0.1,0], [0.15,-0.05], [0.05,0.05]].forEach(([sx, sy]) => {
-    ctx.beginPath(); ctx.ellipse(w/2+sx*w, h*0.12+sy*h, w*0.04, h*0.03, 0.5, 0, Math.PI*2);
-    ctx.fillStyle = '#f0e0a0'; ctx.fill();
-  });
-  // Lechuga
-  ctx.fillStyle = '#3a8a2a';
-  ctx.fillRect(w*0.1, h*0.28, w*0.8, h*0.1);
-  // Carne
-  ctx.fillStyle = '#8B3A0A';
-  ctx.fillRect(w*0.08, h*0.38, w*0.84, h*0.12);
-  // Pan inferior
-  ctx.beginPath(); ctx.ellipse(w/2, h*0.82, w*0.45, h*0.18, 0, 0, Math.PI*2);
-  ctx.fillStyle = '#c8870a'; ctx.fill();
-  ctx.restore();
+class Phase2Obstacle extends Entity {
+  constructor(type, worldX) {
+    const base = type === 'cactus'
+      ? { w: 54, h: 78 }
+      : type === 'urchin'
+        ? { w: 56, h: 56 }
+        : { w: 96, h: 72 };
+    super(worldX, LOGICAL_HEIGHT - 80 - base.h, base.w, base.h);
+    this.type = type;
+    this.worldX = worldX;
+  }
 }
 ```
 
@@ -1542,35 +1534,35 @@ soundManager.define('enemyDeath', { type: 'sawtooth', frequency: 180, duration: 
 
 ## 21. Checklist de Implementación para Copilot
 
-- [ ] Crear `index.html` con la estructura descrita en §3, título de colores, canvas responsive.
-- [ ] Crear `gameplay.js` como módulo ES con todas las clases y funciones descritas.
-- [ ] Implementar `Initialize()` y `Run()` exportados.
-- [ ] Implementar el Game Loop completo (§4.3) dentro de `Run()`.
-- [ ] Implementar `SceneManager` y todos los estados del juego (§5, §11–13, §17).
-- [ ] Implementar `drawPulpito()` con todos los detalles vectoriales (§8.2).
-- [ ] Implementar `drawCalamardo()`, `drawBobEsponja()`, `drawDonCangrejo()` (§9).
-- [ ] Implementar `drawTiburon()` con barra de vida y mini tiburones (§9.4–9.5).
-- [ ] Implementar sistema de Parallax Scrolling con 5 capas (§10).
-- [ ] Implementar coordenadas de mundo (`worldX`) en todas las entidades de Fase 1 (§22).
-- [ ] Implementar `spawnContentIfNeeded()` para generar sacos y oleadas de enemigos dinámicamente (§22).
-- [ ] Implementar `pruneOffScreenEntities()` para limpiar entidades fuera de pantalla (§22).
-- [ ] Implementar `spawnEnemyWave()` con dificultad escalada (§22).
-- [ ] Implementar Fase 1 completa con dificultad progresiva y streaming de contenido (§11, §22).
+- [x] Crear `index.html` con la estructura descrita en §3, título de colores, canvas responsive.
+- [x] Crear `gameplay.js` como módulo ES con todas las clases y funciones descritas.
+- [x] Implementar `Initialize()` y `Run()` exportados.
+- [x] Implementar el Game Loop completo (§4.3) dentro de `Run()`.
+- [x] Implementar `SceneManager` y todos los estados del juego (§5, §11–13, §17).
+- [x] Implementar `drawPulpito()` con todos los detalles vectoriales (§8.2).
+- [x] Implementar `drawCalamardo()`, `drawBobEsponja()`, `drawDonCangrejo()` (§9).
+- [x] Implementar `drawTiburon()` con barra de vida y mini tiburones (§9.4–9.5).
+- [x] Implementar sistema de Parallax Scrolling con 5 capas (§10).
+- [x] Implementar coordenadas de mundo (`worldX`) en todas las entidades de Fase 1 (§22).
+- [x] Implementar `spawnContentIfNeeded()` para generar sacos y oleadas de enemigos dinámicamente (§22).
+- [x] Implementar `pruneOffScreenEntities()` para limpiar entidades fuera de pantalla (§22).
+- [x] Implementar `spawnEnemyWave()` con dificultad escalada (§22).
+- [x] Implementar Fase 1 completa con dificultad progresiva y streaming de contenido (§11, §22).
 - [ ] Implementar clase `Enemy` base con `hp`, `hit()`, `die()`, `stunTime` y `deathTimer` (§23).
-- [ ] Implementar animación de muerte vectorial `renderDeathExplosion()` (§23).
-- [ ] Implementar barra de vida pequeña sobre cada enemigo (§23).
-- [ ] Implementar cola de respawn `respawnQueue` con límite de 6 enemigos simultáneos (§23).
-- [ ] Implementar `processRespawnQueue()` con spawn fuera de pantalla a la derecha (§23).
-- [ ] Actualizar `checkPhase1Collisions()` para usar `enemy.hit()` en lugar de stun (§23).
-- [ ] Añadir sonidos `enemyHit` y `enemyDeath` al `SoundManager` (§23).
-- [ ] Implementar Fase 2 con perseguidores y hamburguesas (§12).
-- [ ] Implementar Fase 3 con jefe tiburón y mini tiburones (§13).
-- [ ] Implementar detección de colisiones AABB y círculo-rectángulo (§14).
-- [ ] Implementar `SoundManager` con Web Audio API procedural (§15).
-- [ ] Implementar HUD con monedas y vidas (§16).
-- [ ] Implementar pantallas de celebración, victoria y game over (§17).
-- [ ] Implementar escalado responsivo del canvas (§18).
-- [ ] Verificar entradas de teclado, ratón y táctil (§7).
+- [x] Implementar animación de muerte vectorial `renderDeathExplosion()` (§23).
+- [x] Implementar barra de vida pequeña sobre cada enemigo (§23).
+- [x] Implementar cola de respawn `respawnQueue` con límite de 6 enemigos simultáneos (§23).
+- [x] Implementar `processRespawnQueue()` con spawn fuera de pantalla a la derecha (§23).
+- [x] Actualizar `checkPhase1Collisions()` para usar `enemy.hit()` en lugar de stun (§23).
+- [x] Añadir sonidos `enemyHit` y `enemyDeath` al `SoundManager` (§23).
+- [x] Implementar Fase 2 como persecución con obstáculos y puerta de escape (§12).
+- [x] Implementar Fase 3 con jefe tiburón y mini tiburones (§13).
+- [x] Implementar detección de colisiones AABB y círculo-rectángulo (§14).
+- [x] Implementar `SoundManager` con Web Audio API procedural (§15).
+- [x] Implementar HUD con monedas y vidas (§16).
+- [x] Implementar pantallas de celebración, victoria y game over (§17).
+- [x] Implementar escalado responsivo del canvas (§18).
+- [x] Verificar entradas de teclado, ratón y táctil (§7).
 - [ ] Probar en Chrome, Firefox y Safari en escritorio y móvil.
 
 ---
